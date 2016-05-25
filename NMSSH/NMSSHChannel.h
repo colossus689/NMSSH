@@ -248,5 +248,10 @@ typedef NS_ENUM(NSInteger, NMSSHChannelType)  {
                 to:(NSString *)remotePath
           progress:(BOOL (^)(NSUInteger))progress;
 
+//colossus - custom for in memory transfer
+- (BOOL)uploadFileData:(NSData*)data
+              fromFile:(NSString*)file
+                    to:(NSString *)remotePath
+              progress:(BOOL (^)(NSUInteger))progress;
 
 @end

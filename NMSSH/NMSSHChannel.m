@@ -504,6 +504,92 @@
     return [self uploadFile:localPath to:remotePath progress:NULL];
 }
 
+- (BOOL)uploadFileData:(NSData*)data fromFile:(NSString*)file to:(NSString *)remotePath progress:(BOOL (^)(NSUInteger))progress {
+    if (self.channel != NULL) {
+        NMSSHLogWarn(@"The channel will be closed before continue");
+        
+        if (self.type == NMSSHChannelTypeShell) {
+            [self closeShell];
+        }
+        else {
+            [self closeChannel];
+        }
+    }
+    
+    // Inherit file name if to: contains a directory
+    if ([remotePath hasSuffix:@"/"]) {
+        remotePath = [remotePath stringByAppendingString:
+                      [[file componentsSeparatedByString:@"/"] lastObject]];
+    }
+    
+    // Set blocking mode
+    libssh2_session_set_blocking(self.session.rawSession, 1);
+
+    struct stat fileinfo;
+    stat([file UTF8String], &fileinfo);
+    // Try to send a file via SCP.
+    LIBSSH2_CHANNEL *channel = libssh2_scp_send64(self.session.rawSession, [remotePath UTF8String], fileinfo.st_mode & 0644,
+                                                  (unsigned long)[data length], 0, 0);;
+    
+    if (channel == NULL) {
+        NMSSHLogError(@"Unable to open SCP session");
+        char *errmsg;
+        int lengthOfMsg;
+        libssh2_session_last_error(self.session.rawSession, &errmsg, &lengthOfMsg, 1);
+        puts(errmsg);
+
+        return NO;
+    }
+    
+    [self setChannel:channel];
+    [self setType:NMSSHChannelTypeSCP];
+    
+    // Wait for file transfer to finish
+    char mem[self.bufferSize];
+    size_t nread;
+    char *ptr;
+    long rc;
+    NSUInteger total = 0;
+    BOOL abort = NO;
+
+    NSInputStream* inputStream = [[NSInputStream alloc] initWithData:data];
+    [inputStream open];
+    while([inputStream hasBytesAvailable]){
+        NSInteger nread = [inputStream read:mem maxLength:sizeof(mem)];
+        ptr = mem;
+        
+        do {
+            // Write the same data over and over, until error or completion
+            rc = libssh2_channel_write(self.channel, ptr, nread);
+            
+            if (rc < 0) {
+                NMSSHLogError(@"Failed writing file");
+                [self closeChannel];
+                return NO;
+            }
+            else {
+                // rc indicates how many bytes were written this time
+                total += rc;
+                if (progress && !progress(total)) {
+                    abort = YES;
+                    break;
+                }
+                ptr += rc;
+                nread -= rc;
+            }
+        } while (nread);
+    };
+    
+    [inputStream close];
+    
+    if ([self sendEOF]) {
+        [self waitEOF];
+    }
+    [self closeChannel];
+    
+    return !abort;
+}
+
 - (BOOL)uploadFile:(NSString *)localPath to:(NSString *)remotePath progress:(BOOL (^)(NSUInteger))progress {
     if (self.channel != NULL) {
         NMSSHLogWarn(@"The channel will be closed before continue");
