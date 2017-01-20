@@ -296,6 +296,9 @@
     // Create a session instance
     [self setSession:libssh2_session_init_ex(NULL, NULL, NULL, (__bridge void *)(self))];
 
+    //set time out on session
+    libssh2_session_set_timeout(self.session,[timeout longValue]*1000);
+    
     // Set a callback for disconnection
     libssh2_session_callback_set(self.session, LIBSSH2_CALLBACK_DISCONNECT, &disconnect_callback);
 
